@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -39,9 +38,9 @@ func main() {
 		log.Fatal("DB_DSN environment variable not set")
 	}
 
-	db.SetMaxOpenConns(80)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	// db.SetMaxOpenConns(80)
+	// db.SetMaxIdleConns(25)
+	// db.SetConnMaxLifetime(5 * time.Minute)
 
 	var err error
 	db, err = sql.Open("mysql", dsn)
