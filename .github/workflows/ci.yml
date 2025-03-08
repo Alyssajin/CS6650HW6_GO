@@ -1,0 +1,53 @@
+name: CI Build, Test, and Push
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+    steps:
+      # 1) Check out your code
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2) Log in to Docker Hub using secrets you set in GitHub
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      # 3) Build your Go server image from the Dockerfile
+      - name: Build server image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/${{ vars.DOCKERHUB_REPO_NAME}}:latest .
+
+      - name: Install Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
+      # 4) Spin up MySQL and your server container for integration testing
+      #    We'll assume you have a "docker-compose.test.yml" that references the built image.
+      - name: Start containers for testing
+        run: |
+          export DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          export DOCKERHUB_REPO_NAME=${{ vars.DOCKERHUB_REPO_NAME }}
+          docker-compose -f docker-compose.test.yml up -d
+          # Sleep to allow MySQL and app to start up
+          sleep 10
+
+      # 5) Run a simple tests
+      - name: Integration Test
+        run: |
+          # Simple check that /health returns 200
+          curl --fail http://localhost:8080/health
+          echo "Health endpoint returned 200 OK!"
+
+      # 6) Stop all containers after tests
+      - name: Stop containers
+        if: always()
+        run: docker-compose -f docker-compose.test.yml down
+
+      # 7) If tests pass, push the image to Docker Hub
+      - name: Push image
+        if: success()
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/${{ vars.DOCKERHUB_REPO_NAME}}:latest

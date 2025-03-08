@@ -1,0 +1,31 @@
+version: '3.8'
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      - MYSQL_DATABASE=mydemodb
+      - MYSQL_USER=mydbuser
+      - MYSQL_PASSWORD=mydbpass
+      - MYSQL_ROOT_PASSWORD=rootpass
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  go-server:
+    image: ${DOCKERHUB_USERNAME}/${DOCKERHUB_REPO_NAME}:latest
+    # we rely on a pre-built image (no local build context)
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DB_USER=mydbuser
+      - DB_PASSWORD=mydbpass
+      - DB_HOST=db     # <--- This references the 'db' service name
+      - DB_NAME=mydemodb
+      - DB_DSN=mydbuser:mydbpass@tcp(db:3306)/mydemodb
+    ports:
+      - "8080:8080"

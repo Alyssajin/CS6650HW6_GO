@@ -11,6 +11,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/auto/sdk"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
+
+	// "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+)
+
+var (
+	db     *sql.DB
+	tracer trace.Tracer
+)
 )
 
 // We'll store a global *sql.DB for simplicity in a demo.
@@ -31,6 +45,20 @@ type Profile struct {
 }
 
 func main() {
+	// Initialize OpenTelemetry
+	exporter, err := prometheus.New()
+	if err != nil {
+		log.Fatalf("Failed to create Prometheus exporter: %v", err)
+	}
+
+	meterProvider := metric.NewMeterProvider(metric.WithReader(exporter))
+	otel.SetMeterProvider(meterProvider)
+
+	tracerProvider := sdk.TracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	tracer = otel.Tracer("cs6650hw6_go")
+
+	// Read MySQL DSN from environment variable
 	// Read MySQL DSN from environment variable, e.g.:
 	// DB_DSN = "mydbuser:mydbpass123@tcp(demo-mysql.ctmce9oladmi.us-west-2.rds.amazonaws.com:3306)/mydemodb"
 	dsn := os.Getenv("DB_DSN")
@@ -42,13 +70,11 @@ func main() {
 	// db.SetMaxIdleConns(25)
 	// db.SetConnMaxLifetime(5 * time.Minute)
 
-	var err error
 	db, err = sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("Failed to open DB: %v", err)
 	}
 
-	// Test the DB connection quickly
 	err = db.Ping()
 	if err != nil {
 		log.Fatalf("Failed to connect to DB: %v", err)
@@ -65,7 +91,6 @@ func main() {
         ) ENGINE=InnoDB;
         `)
 
-	// Setup Gin engine
 	r := gin.Default()
 
 	// Health check route
@@ -75,8 +100,11 @@ func main() {
 
 	// GET /count -> returns row count in "test_table"
 	r.GET("/count", func(c *gin.Context) {
+		ctx, span := tracer.Start(c.Request.Context(), "GET /count")
+		defer span.End()
+
 		var cnt int
-		row := db.QueryRow("SELECT COUNT(*) FROM test_table")
+		row := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM test_table")
 		if err := row.Scan(&cnt); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
@@ -105,6 +133,11 @@ func main() {
 	})
 
 	// POST /insert -> inserts a row with some random value
+	r.POST("/insert", func(c *gin.Context) {
+		ctx, span := tracer.Start(c.Request.Context(), "POST /insert")
+		defer span.End()
+
+		res, err := db.ExecContext(ctx, "INSERT INTO test_table (some_value) VALUES (FLOOR(RAND()*1000))")
 	r.POST("/album", func(c *gin.Context) {
 		profileStr := c.PostForm("profile")
 		if profileStr == "" {
@@ -157,7 +190,9 @@ func main() {
 		c.JSON(200, gin.H{"message": "Album created", "albumId": id, "imageSize": imageSize})
 	})
 
-	// Optionally, pass a port via environment variable or default to 8080
+	// Prometheus metrics endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
