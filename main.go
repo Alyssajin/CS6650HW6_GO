@@ -25,10 +25,8 @@ var (
 	db     *sql.DB
 	tracer trace.Tracer
 )
-)
 
 // We'll store a global *sql.DB for simplicity in a demo.
-var db *sql.DB
 
 type Album struct {
 	Artist    string
@@ -138,6 +136,14 @@ func main() {
 		defer span.End()
 
 		res, err := db.ExecContext(ctx, "INSERT INTO test_table (some_value) VALUES (FLOOR(RAND()*1000))")
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		id, _ := res.LastInsertId()
+		c.JSON(200, gin.H{"message": "inserted", "row_id": id})
+	})
+
 	r.POST("/album", func(c *gin.Context) {
 		profileStr := c.PostForm("profile")
 		if profileStr == "" {
